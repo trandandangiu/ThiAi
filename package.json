@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "multer": "^2.4.0",
+    "recharts": "^3.10.1"
+  }
+}

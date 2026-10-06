@@ -1,0 +1,52 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ThiAi_postgres
+    restart: always
+    environment:
+      POSTGRES_DB: ThiAi_db
+      POSTGRES_USER: ThiAi_app
+      POSTGRES_PASSWORD: ThiAi@2026Strong!
+      TZ: Asia/Ho_Chi_Minh
+    ports:
+      - "5434:5432"
+    volumes:
+      - ThiAi_postgres_data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ThiAi_app -d ThiAi_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ThiAi_net
+
+  redis:
+    image: redis:7-alpine
+    container_name: ThiAi_redis
+    restart: always
+    ports:
+      - "6380:6379"
+    volumes:
+      - ThiAi_redis_data:/data
+    networks:
+      - ThiAi_net
+
+  adminer:
+    image: adminer:latest
+    container_name: ThiAi_adminer
+    restart: always
+    ports:
+      - "8081:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    networks:
+      - ThiAi_net
+
+volumes:
+  ThiAi_postgres_data:
+  ThiAi_redis_data:
+
+networks:
+  ThiAi_net:
+    driver: bridge

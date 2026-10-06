@@ -1,0 +1,595 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// 1. DEPARTMENTS — Phòng ban
+// ============================================
+model Department {
+  id           String   @id @default(uuid())
+  code         String   @unique // "P1", "P2"
+  name         String // "Phòng 1"
+  shortName    String?  @map("short_name") // "P1"
+  managerId    String?  @map("manager_id") // Trưởng phòng
+  pvtManagerId String?  @map("pvt_manager_id") // PVT phụ trách
+  description  String?
+  active       Boolean  @default(true)
+  order        Int      @default(0)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  users User[] @relation("DepartmentUsers")
+
+  @@map("departments")
+}
+
+// ============================================
+// 2. ROLES — Vai trò
+// ============================================
+model Role {
+  id          Int      @id @default(autoincrement()) // 1, 2, 3, 4
+  code        String   @unique // "ADMIN", "VIEN_TRUONG"
+  name        String // "Quản trị viên"
+  description String?
+  level       Int      @default(0) // 0=cao nhất
+  isSystem    Boolean  @default(false) @map("is_system")
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  userRoles       UserRole[]
+  rolePermissions RolePermission[]
+
+  @@map("roles")
+}
+
+// ============================================
+// 3. PERMISSIONS — Quyền
+// ============================================
+model Permission {
+  id          Int      @id @default(autoincrement()) // 1, 2, ..., 40
+  code        String   @unique // "user:create"
+  name        String // "Tạo tài khoản"
+  module      String // "user", "dispatch"
+  action      String // "create", "view"
+  scope       String? // "all", "own"
+  description String?
+  isSystem    Boolean  @default(false) @map("is_system")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  rolePermissions RolePermission[]
+
+  @@index([module])
+  @@index([code])
+  @@map("permissions")
+}
+
+// ============================================
+// 4. ROLE_PERMISSIONS — Gán quyền cho role
+// ============================================
+model RolePermission {
+  id           Int        @id @default(autoincrement())
+  roleId       Int        @map("role_id")
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permissionId Int        @map("permission_id")
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now()) @map("created_at")
+
+  @@unique([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+// ============================================
+// 5. USER_ROLES — Gán role cho user
+// ============================================
+model UserRole {
+  id         Int       @id @default(autoincrement())
+  userId     String    @map("user_id")
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roleId     Int       @map("role_id")
+  role       Role      @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  assignedBy String?   @map("assigned_by")
+  assignedAt DateTime  @default(now()) @map("assigned_at")
+  expiresAt  DateTime? @map("expires_at")
+
+  @@unique([userId, roleId])
+  @@map("user_roles")
+}
+
+// ============================================
+// 6. USERS — Người dùng
+// ============================================
+model User {
+  id           String  @id @default(uuid())
+  username     String  @unique
+  passwordHash String  @map("password_hash")
+  fullName     String  @map("full_name")
+  email        String? @unique
+  phone        String?
+  avatarUrl    String? @map("avatar_url")
+
+  // ⚠️ GIỮ TẠM để migrate (sẽ xóa sau)
+  role     String? // ROLE CŨ
+  roomCode String? @map("room_code") // ROOM CODE CŨ
+
+  // ✅ THÊM MỚI
+  position     String? // Chức vụ
+  departmentId String?     @map("department_id")
+  department   Department? @relation("DepartmentUsers", fields: [departmentId], references: [id])
+
+  managerId    String? @map("manager_id")
+  manager      User?   @relation("UserHierarchy", fields: [managerId], references: [id])
+  subordinates User[]  @relation("UserHierarchy")
+
+  // ⚠️ GIỮ pvtManagerId cũ
+  pvtManagerId String? @map("pvt_manager_id")
+
+  // 2FA
+  totpSecret  String? @map("totp_secret")
+  totpEnabled Boolean @default(false) @map("totp_enabled")
+
+  // Trạng thái
+  active      Boolean   @default(true)
+  lastLoginAt DateTime? @map("last_login_at")
+  lastLoginIp String?   @map("last_login_ip")
+
+  // Metadata
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  // Quan hệ mới
+  userRoles         UserRole[]
+  dispatchesCreated Dispatch[]     @relation("DispatchCreator")
+  attachments       Attachment[]
+  assignmentsFrom   Assignment[]   @relation("AssignmentFrom")
+  assignmentsTo     Assignment[]   @relation("AssignmentTo")
+  rejectionsFrom    Rejection[]    @relation("RejectionFrom")
+  rejectionsTo      Rejection[]    @relation("RejectionTo")
+  reports           Report[]
+  notifications     Notification[]
+  auditLogs         AuditLog[]
+  sessions          Session[]
+  exports           Export[]
+  pushSubscriptions PushSubscription[]
+
+  @@index([role])
+  @@index([roomCode])
+  @@index([departmentId])
+  @@index([managerId])
+  @@map("users")
+}
+
+// ============================================
+// 7. DISPATCHES — Công văn
+// ============================================
+model Dispatch {
+  id          String  @id @default(uuid())
+  soCongVan   String  @map("so_cong_van")
+  soCongVanTP String? @map("so_cong_van_tp")
+
+  // Thông tin
+  tenCongVan    String    @map("ten_cong_van")
+  ngayGui       DateTime? @map("ngay_gui") @db.Date
+  ngayPhatHanh  DateTime? @map("ngay_phat_hanh") @db.Date
+  hanBaoCaoXuLy DateTime? @map("han_bao_cao_xu_ly") @db.Date
+  thoiHanXuLy   String?   @map("thoi_han_xu_ly")
+  donViBanHanh  String    @map("don_vi_ban_hanh")
+  nguoiThucHien String?   @map("nguoi_thuc_hien")
+  ghiChu        String?
+
+  // Phân loại
+  mucDoKhan   String  @default("THUONG") @map("muc_do_khan")
+  loaiCongVan String? @map("loai_cong_van")
+
+  // Trạng thái
+  trangThai String @default("MOI_TAO") @map("trang_thai")
+  tienDo    Int    @default(0) @map("tien_do")
+
+  // Người tạo
+  createdById String @map("created_by_id")
+  createdBy   User   @relation("DispatchCreator", fields: [createdById], references: [id])
+
+  // ⚠️ GIỮ TẠM các field cũ để migrate
+  assignedPvtId   String? @map("assigned_pvt_id")
+  assignedPvtName String? @map("assigned_pvt_name")
+  assignedTpId    String? @map("assigned_tp_id")
+  assignedTpName  String? @map("assigned_tp_name")
+
+  // Ý kiến chỉ đạo
+  vtChiDao     String? @map("vt_chi_dao")
+  pvtChiDao    String? @map("pvt_chi_dao")
+  baoCaoTienDo String? @map("bao_cao_tien_do")
+
+  // Không đồng ý
+  lyDoKhongDongYVT  String? @map("ly_do_khong_dong_y_vt")
+  lyDoKhongDongYPVT String? @map("ly_do_khong_dong_y_pvt")
+  soLanTraLai       Int     @default(0) @map("so_lan_tra_lai")
+
+  // Cột động
+  customFields Json? @map("custom_fields")
+  tags         Json? @default("[]")
+
+  // Thời gian
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  completedAt DateTime? @map("completed_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  // Quan hệ MỚI
+  dispatchPvts  DispatchPvt[]
+  dispatchTps   DispatchTp[]
+  assignments   Assignment[]
+  attachments   Attachment[]
+  rejections    Rejection[]
+  reports       Report[]
+  notifications Notification[]
+
+  @@index([trangThai])
+  @@index([hanBaoCaoXuLy])
+  @@index([assignedPvtId])
+  @@index([assignedTpId])
+  @@index([createdById])
+  @@map("dispatches")
+}
+
+// ============================================
+// 8. DISPATCH_PVTS — PVT được giao (1-N)
+// ============================================
+model DispatchPvt {
+  id         String   @id @default(uuid())
+  dispatchId String   @map("dispatch_id")
+  dispatch   Dispatch @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+
+  pvtId    String @map("pvt_id")
+  pvtName  String @map("pvt_name")
+  roomCode String @map("room_code") // "PVT1"
+
+  isPrimary Boolean @default(true) @map("is_primary")
+  role      String  @default("CHINH") // CHINH | PHOI_HOP
+
+  status String  @default("PENDING")
+  yKien  String?
+
+  assignedAt  DateTime  @default(now()) @map("assigned_at")
+  acceptedAt  DateTime? @map("accepted_at")
+  completedAt DateTime? @map("completed_at")
+
+  @@index([dispatchId])
+  @@index([pvtId])
+  @@map("dispatch_pvts")
+}
+
+// ============================================
+// 9. DISPATCH_TPS — TP được giao (1-N)
+// ============================================
+model DispatchTp {
+  id         String   @id @default(uuid())
+  dispatchId String   @map("dispatch_id")
+  dispatch   Dispatch @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+
+  assignedByPvtId   String @map("assigned_by_pvt_id")
+  assignedByPvtName String @map("assigned_by_pvt_name")
+
+  tpId     String @map("tp_id")
+  tpName   String @map("tp_name")
+  roomCode String @map("room_code") // "TP1"
+
+  isPrimary Boolean @default(true) @map("is_primary")
+  role      String  @default("CHINH") // CHINH | PHOI_HOP
+
+  status       String  @default("PENDING")
+  yKien        String?
+  baoCaoTienDo String? @map("bao_cao_tien_do")
+  tienDo       Int     @default(0) @map("tien_do")
+
+  assignedAt  DateTime  @default(now()) @map("assigned_at")
+  acceptedAt  DateTime? @map("accepted_at")
+  completedAt DateTime? @map("completed_at")
+
+  @@index([dispatchId])
+  @@index([tpId])
+  @@index([assignedByPvtId])
+  @@map("dispatch_tps")
+}
+
+// ============================================
+// 10. ASSIGNMENTS — Lịch sử phân công
+// ============================================
+model Assignment {
+  id         String   @id @default(uuid())
+  dispatchId String   @map("dispatch_id")
+  dispatch   Dispatch @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+
+  fromUserId   String  @map("from_user_id")
+  fromUser     User    @relation("AssignmentFrom", fields: [fromUserId], references: [id])
+  fromUserName String  @map("from_user_name")
+  fromRole     String? @map("from_role")
+
+  toUserId   String  @map("to_user_id")
+  toUser     User    @relation("AssignmentTo", fields: [toUserId], references: [id])
+  toUserName String  @map("to_user_name")
+  toRole     String? @map("to_role")
+
+  assignLevel String    @map("assign_level") // VT_TO_PVT | PVT_TO_TP | ...
+  chiDao      String?
+  hanXuLy     DateTime? @map("han_xu_ly") @db.Date
+  status      String    @default("PENDING")
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  completedAt DateTime? @map("completed_at")
+
+  @@index([dispatchId])
+  @@index([fromUserId])
+  @@index([toUserId])
+  @@map("assignments")
+}
+
+// ============================================
+// 11. ATTACHMENTS — File đính kèm
+// ============================================
+model Attachment {
+  id         String   @id @default(uuid())
+  dispatchId String   @map("dispatch_id")
+  dispatch   Dispatch @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+
+  uploaderId   String  @map("uploader_id")
+  uploader     User    @relation(fields: [uploaderId], references: [id])
+  uploaderName String  @map("uploader_name")
+  uploaderRole String? @map("uploader_role")
+
+  fileName String  @map("file_name")
+  filePath String  @map("file_path")
+  fileSize Int     @map("file_size")
+  fileType String  @map("file_type")
+  fileHash String? @map("file_hash")
+
+  fileCategory String  @map("file_category") // ORIGINAL | DRAFT | REPORT | ...
+  stage        String?
+  description  String?
+
+  isDeleted Boolean @default(false) @map("is_deleted")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([dispatchId])
+  @@index([uploaderId])
+  @@map("attachments")
+}
+
+// ============================================
+// 12. REPORTS — Báo cáo tiến độ
+// ============================================
+model Report {
+  id         String   @id @default(uuid())
+  dispatchId String   @map("dispatch_id")
+  dispatch   Dispatch @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+
+  reporterId   String  @map("reporter_id")
+  reporter     User    @relation(fields: [reporterId], references: [id])
+  reporterName String  @map("reporter_name")
+  reporterRole String? @map("reporter_role")
+
+  content     String
+  progressPct Int    @map("progress_pct")
+  reportType  String @map("report_type") // PROGRESS | ISSUE | COMPLETION
+  status      String @default("SUBMITTED")
+
+  attachmentIds Json? @map("attachment_ids")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([dispatchId])
+  @@index([reporterId])
+  @@map("reports")
+}
+
+// ============================================
+// 13. REJECTIONS — Lịch sử không đồng ý
+// ============================================
+model Rejection {
+  id         String   @id @default(uuid())
+  dispatchId String   @map("dispatch_id")
+  dispatch   Dispatch @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+
+  fromUserId   String  @map("from_user_id")
+  fromUser     User    @relation("RejectionFrom", fields: [fromUserId], references: [id])
+  fromUserName String  @map("from_user_name")
+  fromRole     String? @map("from_role")
+
+  toUserId   String  @map("to_user_id")
+  toUser     User    @relation("RejectionTo", fields: [toUserId], references: [id])
+  toUserName String  @map("to_user_name")
+  toRole     String? @map("to_role")
+
+  reason        String
+  category      String?
+  attachmentIds Json?   @map("attachment_ids")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([dispatchId])
+  @@map("rejections")
+}
+
+// ============================================
+// 14. NOTIFICATIONS — Thông báo
+// ============================================
+model Notification {
+  id     String @id @default(uuid())
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // ✅ THÊM: Quan hệ với Dispatch
+  dispatchId String?   @map("dispatch_id")
+  dispatch   Dispatch? @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+  type       String
+  title      String
+  content    String?
+
+  referenceType String? @map("reference_type")
+  referenceId   String? @map("reference_id")
+
+  isRead Boolean   @default(false) @map("is_read")
+  readAt DateTime? @map("read_at")
+
+  sentViaApp   Boolean @default(true) @map("sent_via_app")
+  sentViaEmail Boolean @default(false) @map("sent_via_email")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+// ============================================
+// 15. AUDIT_LOGS — Nhật ký (GIỮ NGUYÊN)
+// ============================================
+model AuditLog {
+  id       String  @id @default(uuid())
+  userId   String? @map("user_id")
+  user     User?   @relation(fields: [userId], references: [id])
+  userName String? @map("user_name")
+  userRole String? @map("user_role")
+
+  action     String
+  entityType String? @map("entity_type")
+  entityId   String? @map("entity_id")
+
+  oldValue Json? @map("old_value")
+  newValue Json? @map("new_value")
+
+  ipAddress String? @map("ip_address")
+  userAgent String? @map("user_agent")
+  method    String?
+  endpoint  String?
+
+  status       String  @default("SUCCESS")
+  errorMessage String? @map("error_message")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([action])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ============================================
+// 16. SESSIONS — Phiên đăng nhập
+// ============================================
+model Session {
+  id     String @id @default(uuid())
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  refreshToken String  @unique @map("refresh_token")
+  ipAddress    String? @map("ip_address")
+  userAgent    String? @map("user_agent")
+  deviceType   String? @map("device_type")
+
+  expiresAt DateTime  @map("expires_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  revokedAt DateTime? @map("revoked_at")
+
+  @@index([userId])
+  @@index([refreshToken])
+  @@map("sessions")
+}
+
+// ============================================
+// 17. EXPORTS — Lịch sử trích xuất
+// ============================================
+model Export {
+  id       String @id @default(uuid())
+  userId   String @map("user_id")
+  user     User   @relation(fields: [userId], references: [id])
+  userName String @map("user_name")
+
+  exportType String @map("export_type")
+  reportType String @map("report_type")
+
+  filters     Json?
+  recordCount Int   @map("record_count")
+
+  fileName String @map("file_name")
+  filePath String @map("file_path")
+  fileSize Int    @map("file_size")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([exportType])
+  @@map("exports")
+}
+
+// ============================================
+// 18. COLUMNS — Cột động (GIỮ NGUYÊN)
+// ============================================
+model Column {
+  id          String  @id @default(uuid())
+  label       String
+  type        String
+  required    Boolean @default(false)
+  visible     Boolean @default(true)
+  isCustom    Boolean @default(false) @map("is_custom")
+  order       Int     @default(0)
+  width       String?
+  options     Json?
+  description String?
+
+  @@map("columns")
+}
+
+// ============================================
+// 19. SYSTEM_SETTINGS (GIỮ NGUYÊN)
+// ============================================
+model SystemSetting {
+  key         String   @id
+  value       String
+  type        String   @default("string")
+  category    String   @default("SYSTEM")
+  description String?
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("system_settings")
+}
+// ============================================
+// 20. PUSH_SUBSCRIPTIONS — Đăng ký nhận Web Push
+// ============================================
+model PushSubscription {
+  id     String  @id @default(uuid())
+  
+  // ⭐ Cho phép NULL — khách cũng subscribe được
+  userId String? @map("user_id")
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // ⭐ Đánh dấu khách
+  isGuest Boolean @default(false) @map("is_guest")
+  
+  // ⭐ Loại subscription (để filter sau này)
+  subscriptionType String @default("ALL") @map("subscription_type")
+
+  endpoint String @unique @db.Text
+  p256dh   String @db.Text
+  auth     String @db.Text
+
+  userAgent  String? @map("user_agent")
+  deviceType String? @map("device_type")
+
+  createdAt  DateTime @default(now()) @map("created_at")
+  lastUsedAt DateTime @default(now()) @map("last_used_at")
+
+  @@index([userId])
+  @@index([isGuest])
+  @@map("push_subscriptions")
+}

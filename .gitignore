@@ -1,0 +1,14 @@
+node_modules/
+build/
+dist/
+coverage/
+uploads/
+.DS_Store
+*.log
+.env*
+!.env.example
+
+# Project exports
+exports/
+project_full_*.md
+project_full_*.txt
