@@ -2,13 +2,17 @@
 import { AiContext, ChatMessage, AiIntent } from '../types/aiAgent';
 import { contextToPromptString } from '../utils/aiContextBuilder';
 
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY as string;
-const GEMINI_MODEL =
-  (import.meta.env.VITE_GEMINI_MODEL as string) || 'gemini-3.8-flash';
-const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+// ═══════════════════════════════════════════════════════════
+// DEEPSEEK CONFIG
+// ═══════════════════════════════════════════════════════════
+const DEEPSEEK_API_KEY = import.meta.env.VITE_DEEPSEEK_API_KEY as string;
+const DEEPSEEK_MODEL =
+  (import.meta.env.VITE_DEEPSEEK_MODEL as string) || 'deepseek-chat';
+// Có thể đổi thành 'deepseek-reasoner' nếu muốn AI suy luận sâu hơn (đắt hơn 2x)
+const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
 
 // ═══════════════════════════════════════════════════════════
-// SYSTEM PROMPT — Định hình tính cách & quy tắc
+// SYSTEM PROMPT — Giữ nguyên
 // ═══════════════════════════════════════════════════════════
 const SYSTEM_PROMPT = `Bạn là "Trợ lý VKS" — trợ lý AI thông minh của Hệ thống theo dõi tiến độ xử lý công văn của Viện Kiểm sát nhân dân Thành phố Hồ Chí Minh.
 
@@ -51,7 +55,7 @@ const SYSTEM_PROMPT = `Bạn là "Trợ lý VKS" — trợ lý AI thông minh c�
 Bây giờ, hãy đọc DỮ LIỆU DATABASE bên dưới và trả lời câu hỏi người dùng.`;
 
 // ═══════════════════════════════════════════════════════════
-// DETECT INTENT (đơn giản, không cần AI)
+// DETECT INTENT — Giữ nguyên
 // ═══════════════════════════════════════════════════════════
 export const detectIntent = (question: string): AiIntent => {
   const q = question.toLowerCase();
@@ -72,86 +76,84 @@ export const detectIntent = (question: string): AiIntent => {
 };
 
 // ═══════════════════════════════════════════════════════════
-// GỌI GEMINI API
+// DEEPSEEK RESPONSE TYPE (chuẩn OpenAI)
 // ═══════════════════════════════════════════════════════════
-interface GeminiResponse {
-  candidates?: Array<{
-    content?: {
-      parts?: Array<{ text?: string }>;
+interface DeepSeekResponse {
+  id?: string;
+  choices?: Array<{
+    index?: number;
+    message?: {
+      role?: string;
+      content?: string;
     };
+    finish_reason?: string;
   }>;
-  error?: { message?: string };
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+  };
+  error?: {
+    message?: string;
+    type?: string;
+    code?: string;
+  };
 }
 
+// ═══════════════════════════════════════════════════════════
+// GỌI DEEPSEEK API
+// ═══════════════════════════════════════════════════════════
 export const askAiAgent = async (
   question: string,
   context: AiContext,
   history: ChatMessage[] = []
 ): Promise<{ answer: string; error?: string }> => {
-  if (!GEMINI_API_KEY) {
+  if (!DEEPSEEK_API_KEY) {
     return {
       answer: '',
-      error: 'Chưa cấu hình VITE_GEMINI_API_KEY. Vui lòng liên hệ quản trị viên.',
+      error:
+        'Chưa cấu hình VITE_DEEPSEEK_API_KEY. Vui lòng thêm key vào file .env.',
     };
   }
 
   // Build context string
   const contextStr = contextToPromptString(context);
 
-  // Build history (chỉ lấy 6 tin nhắn gần nhất, không tính system)
+  // Build history (6 tin nhắn gần nhất, bỏ loading/error)
   const recentHistory = history
     .filter(m => m.role === 'user' || m.role === 'assistant')
     .filter(m => !m.isLoading && !m.error)
     .slice(-6);
 
-  const contents = [
-    // System instruction (đặt ở user turn đầu để Gemini hiểu)
+  // ⭐ DeepSeek dùng format OpenAI: messages[] với role system/user/assistant
+  const messages = [
     {
-      role: 'user',
-      parts: [
-        {
-          text: `${SYSTEM_PROMPT}\n\n=== DỮ LIỆU DATABASE THỰC TẾ ===\n${contextStr}\n\n=== HẾT DỮ LIỆU ===\n\nHãy xác nhận đã hiểu và sẵn sàng trả lời.`,
-        },
-      ],
+      role: 'system',
+      content: `${SYSTEM_PROMPT}\n\n=== DỮ LIỆU DATABASE THỰC TẾ ===\n${contextStr}\n\n=== HẾT DỮ LIỆU ===`,
     },
-    {
-      role: 'model',
-      parts: [
-        {
-          text: 'Đã hiểu. Tôi đã nắm toàn bộ dữ liệu công văn và sẵn sàng trả lời câu hỏi của bạn dựa trên dữ liệu thực tế này.',
-        },
-      ],
-    },
-    // History
     ...recentHistory.map(m => ({
-      role: m.role === 'user' ? 'user' : 'model',
-      parts: [{ text: m.content }],
+      role: m.role === 'user' ? 'user' : 'assistant',
+      content: m.content,
     })),
-    // Câu hỏi hiện tại
     {
       role: 'user',
-      parts: [{ text: question }],
+      content: question,
     },
   ];
 
   try {
-    const res = await fetch(`${API_URL}?key=${GEMINI_API_KEY}`, {
+    const res = await fetch(DEEPSEEK_API_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
+      },
       body: JSON.stringify({
-        contents,
-        generationConfig: {
-          temperature: 0.3,
-          topK: 40,
-          topP: 0.9,
-          maxOutputTokens: 2048,
-        },
-        safetySettings: [
-          { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-          { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-          { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-          { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
-        ],
+        model: DEEPSEEK_MODEL,
+        messages,
+        temperature: 0.3,
+        max_tokens: 2048,
+        stream: false,
       }),
     });
 
@@ -159,32 +161,47 @@ export const askAiAgent = async (
       const errBody = await res.json().catch(() => ({}));
       const msg =
         errBody?.error?.message ||
-        `Lỗi Gemini API (${res.status}). Kiểm tra lại API key.`;
+        `Lỗi DeepSeek API (${res.status}). Kiểm tra lại API key và số dư tài khoản.`;
+
+      // Log chi tiết để debug
+      console.error('[DeepSeek Error]', res.status, errBody);
+
       return { answer: '', error: msg };
     }
 
-    const data: GeminiResponse = await res.json();
+    const data: DeepSeekResponse = await res.json();
 
     if (data.error) {
-      return { answer: '', error: data.error.message || 'Lỗi không xác định' };
+      return {
+        answer: '',
+        error: data.error.message || 'Lỗi không xác định từ DeepSeek.',
+      };
     }
 
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    const text = data.choices?.[0]?.message?.content;
     if (!text) {
       return { answer: '', error: 'AI không trả về nội dung.' };
     }
 
+    // Log usage để biết chi phí
+    if (data.usage) {
+      console.log(
+        `[DeepSeek] ${data.usage.prompt_tokens} in + ${data.usage.completion_tokens} out = ${data.usage.total_tokens} tokens`
+      );
+    }
+
     return { answer: text.trim() };
   } catch (err: any) {
+    console.error('[DeepSeek Fetch Error]', err);
     return {
       answer: '',
-      error: err?.message || 'Lỗi kết nối tới Gemini API.',
+      error: err?.message || 'Lỗi kết nối tới DeepSeek API.',
     };
   }
 };
 
 // ═══════════════════════════════════════════════════════════
-// CÂU HỎI GỢI Ý
+// CÂU HỎI GỢI Ý — Giữ nguyên
 // ═══════════════════════════════════════════════════════════
 export const SUGGESTED_QUESTIONS = [
   'Có bao nhiêu công văn quá hạn?',

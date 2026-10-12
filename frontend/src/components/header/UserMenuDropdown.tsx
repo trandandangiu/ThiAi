@@ -115,7 +115,7 @@ export const UserMenuDropdown: React.FC<UserMenuDropdownProps> = ({
     if (currentUser.role === 'ADMIN') return 'Bảng quản trị';
     if (pos) return `Cập nhật`;
     switch (currentUser.role) {
-      case 'VIEN_TRUONG': return 'Bàn làm việc Viện trưởng';
+      case 'VIEN_TRUONG': return 'Cập nhật';
       case 'PHO_VIEN_TRUONG': return 'Bàn làm việc Phó Viện trưởng';
       case 'TRUONG_PHONG': return 'Bàn làm việc Trưởng phòng';
       default: return 'Bàn làm việc';

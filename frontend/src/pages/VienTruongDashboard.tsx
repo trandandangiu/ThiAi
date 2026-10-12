@@ -15,6 +15,7 @@ import { PublicDesktopTable } from '../components/public/PublicDesktopTable';
 import { PublicMobileCardList } from '../components/vt/PublicMobileCardList';
 import { MobileFab } from '../components/vt/MobileFab';
 import { VtFilters, DEFAULT_VT_FILTERS } from '../types/vt';
+import { AiAgentChatbox } from '../components/public/AiAgentChatbox';
 import { formatDate } from '../utils/format';
 import { resolveDispatchStatus } from '../services/excelService';
 
@@ -137,6 +138,40 @@ export const VienTruongDashboard: React.FC = () => {
 
   const [pvtDetailStat, setPvtDetailStat] = useState<any>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [departments, setDepartments] = useState<
+    Array<{ code: string; name: string; managerId?: string; pvtManagerId?: string }>
+  >([]);
+
+  // ⭐ Load departments 1 lần
+  useEffect(() => {
+    const loadDepartments = async () => {
+      try {
+        const token = localStorage.getItem('access_token');
+        const res = await fetch('/api/departments', {
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        });
+        const data = await res.json();
+        if (data.success && Array.isArray(data.departments)) {
+          setDepartments(
+            data.departments
+              .filter((d: any) => d.active !== false)
+              .map((d: any) => ({
+                code: d.code,
+                name: d.name,
+                managerId: d.managerId,
+                pvtManagerId: d.pvtManagerId,
+              }))
+          );
+        }
+      } catch (e) {
+        console.error('Lỗi load departments cho AI chatbox:', e);
+      }
+    };
+    loadDepartments();
+  }, []);
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
     setToast({ message, type });
@@ -923,13 +958,12 @@ export const VienTruongDashboard: React.FC = () => {
       {toast && (
         <div className="fixed z-[100] bottom-20 left-1/2 -translate-x-1/2 sm:bottom-6 sm:left-auto sm:right-6 sm:translate-x-0 px-4 w-[calc(100%-2rem)] sm:w-auto max-w-sm">
           <div
-            className={`px-4 py-3 rounded-2xl shadow-xl flex items-center gap-2.5 text-xs font-bold border ${
-              toast.type === 'success'
-                ? 'bg-slate-900 text-white border-slate-700'
-                : toast.type === 'error'
-                  ? 'bg-rose-900 text-white border-rose-700'
-                  : 'bg-amber-900 text-white border-amber-700'
-            }`}
+            className={`px-4 py-3 rounded-2xl shadow-xl flex items-center gap-2.5 text-xs font-bold border ${toast.type === 'success'
+              ? 'bg-slate-900 text-white border-slate-700'
+              : toast.type === 'error'
+                ? 'bg-rose-900 text-white border-rose-700'
+                : 'bg-amber-900 text-white border-amber-700'
+              }`}
           >
             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
             <span className="flex-1">{toast.message}</span>
@@ -1010,6 +1044,7 @@ export const VienTruongDashboard: React.FC = () => {
       />
 
       {/* DRAWER CHI TIẾT CHUYÊN ĐỀ */}
+      {/* DRAWER CHI TIẾT CHUYÊN ĐỀ */}
       <ChuyenDeDrawer
         chuyenDe={chuyenDeDetail}
         onClose={() => setChuyenDeDetail(null)}
@@ -1018,6 +1053,14 @@ export const VienTruongDashboard: React.FC = () => {
           await apiClient.updateDispatch(id, updates);
           reload();
         }}
+      />
+
+      {/* ⭐ AI AGENT CHATBOX — Cho Viện trưởng tra cứu nhanh */}
+      <AiAgentChatbox
+        dispatches={dispatches}
+        allUsers={allUsers}
+        departments={departments}
+        enabled={import.meta.env.VITE_AI_AGENT_ENABLED !== 'false'}
       />
     </div>
   );

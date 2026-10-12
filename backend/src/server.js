@@ -20,6 +20,7 @@ import adminRoutes from './routes/admin.routes.js';
 import notificationsRoutes from './routes/notifications.routes.js';
 import sseRoutes from './routes/sse.routes.js';
 import pushRoutes from './routes/push.routes.js';
+import aiRoutes from './routes/ai.routes.js';
 
 import { errorHandler, notFound } from './middlewares/error.js';
 
@@ -96,6 +97,7 @@ app.use('/api/push', pushRoutes);
 app.use('/api', attachmentsRoutes);
 app.use('/api', assignmentsRoutes);
 app.use('/api', reportsRoutes);
+app.use('/api/ai', aiRoutes);
 
 // Error handlers
 app.use(notFound);
